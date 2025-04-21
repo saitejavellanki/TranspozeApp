@@ -9,6 +9,9 @@ const bodyParser = require('body-parser');
 require('dotenv').config();
 const FormData = require('form-data');
 const axios = require('axios');
+const { exec } = require('child_process'); // For FFmpeg execution
+const util = require('util'); // For promisifying exec
+const execPromise = util.promisify(exec); // Promisify exec
 
 const app = express();
 const port = process.env.PORT || 5514;
@@ -37,6 +40,19 @@ const initDriveClient = () => {
   return google.drive({ version: 'v3', auth });
 };
 
+// Helper function to convert audio file to PCM format
+async function convertAudioToPCM(inputFile, outputFile) {
+  try {
+    // Convert to PCM 16-bit, 16kHz, mono
+    const command = `ffmpeg -i ${inputFile} -acodec pcm_s16le -ac 1 -ar 16000 ${outputFile}`;
+    await execPromise(command);
+    console.log(`Successfully converted audio to PCM: ${outputFile}`);
+    return true;
+  } catch (error) {
+    console.error('Audio conversion failed:', error);
+    throw new Error(`Audio conversion failed: ${error.message}`);
+  }
+}
 // Cache for folder IDs
 const folderCache = {};
 
@@ -331,6 +347,7 @@ app.post('/api/folders/hierarchy', async (req, res) => {
 });
 
 // Route to save a recording directly
+// Route to save a recording with conversion to PCM
 app.post('/api/recordings/save', upload.single('file'), async (req, res) => {
   try {
     const { schoolName, classLevel, subject, fileName } = req.body;
@@ -343,25 +360,33 @@ app.post('/api/recordings/save', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Create the folder hierarchy in Google Drive using our helper function
+    const originalFilePath = req.file.path;
+    const convertedFilePath = `${originalFilePath}_converted.wav`;
+    
+    // Convert the audio file to PCM format
+    await convertAudioToPCM(originalFilePath, convertedFilePath);
+
+    // Create the folder hierarchy in Google Drive
     const folders = await createFolderHierarchy(schoolName, classLevel, subject);
 
-    // Upload the file to Google Drive using our helper function
+    // Upload the converted file to Google Drive
     const uploadResult = await uploadFile(
-      req.file.path,
+      convertedFilePath,
       fileName,
       'audio/wav',
       folders.subjectId
     );
 
-    // Remove the temporary uploaded file
-    fs.unlinkSync(req.file.path);
+    // Remove the temporary uploaded files
+    fs.unlinkSync(originalFilePath);
+    fs.unlinkSync(convertedFilePath);
 
     // Respond with success and file info
     return res.json({
       success: true,
       fileId: uploadResult.id,
-      path: `${schoolName}/${classLevel}/${subject}/${fileName}`
+      path: `${schoolName}/${classLevel}/${subject}/${fileName}`,
+      format: 'PCM 16-bit, 16kHz, mono'
     });
 
   } catch (error) {
@@ -493,6 +518,8 @@ app.post('/api/files/:fileId/share', async (req, res) => {
     res.status(500).json({ error: `Failed to share file: ${error.message}` });
   }
 });
+
+
 
 // Route to get publicly accessible links for a file
 app.post('/api/files/:fileId/getLink', async (req, res) => {
