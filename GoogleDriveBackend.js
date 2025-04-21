@@ -23,8 +23,8 @@ app.use(bodyParser.json());
 
 // Service account credentials
 const CREDENTIALS = {
-  client_email: 'transpozeapp@transpozeapp-457313.iam.gserviceaccount.com',
-  private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD1pwDA1BJSSeh+\nl5lM+tT10AEkBQYWRZZeCwS2uOlF5yxdDt2mz6kkH9Kur9eyKfjNPuYUU/T8WCaj\nQzdJtRLgB6joNQw1XWKFj3amirpYseFPZKt9xDAiGwcn2hNSQL8RTAeky+pbFcyf\nG+TGl4Ktk9caNUZrK0mohkqiG/FqrMsD2e5BHjSWiHacYrd+KsBQNiO5hhwnQWQz\n2HxRi6lEUrWI943KvSOKc0l/pB2z4oCYNBwrGRp4qcTIoK9aZ2JXMnoKXREn856x\nfW15VonKojwhbsclgrQCNlLm3/g0l+ACYrP7wv4ljkVK7FxGoEsyI2iHjdip6SPc\nUwBOWURtAgMBAAECggEAEgI6u2gwqaiyaylo+yw+VYD4vG/D2PkkA2PyZgTbUR0X\n8wCGflal8ziEBPtuKCkMjNtqGZ5oDOHXf0uLr5MfPZ5CIzfUW8srUFhKnf34mEz+\nFAhwzAkIcE+j8Cd8GCEYAMgenVW3qhLIi/eLB4YO9fOrJsg2D+A+B6VErmq3AZdh\ni5BlG4irkNRfhI0brMoFBwJB1TDwr7QKSOKO55esMzLicihMHNfw1QNV9OoLkrGy\n2rFfc/ixG7x6AN3hbhBuTXHnWMtcJAtJOabLSqofw8EteSreaKpfk8h3sm1KPRfT\nSZsQVhicCX+g+znrZC/oK1EVsysURymh8zzKpdNw7wKBgQD8+PRutfr8K8/gBoqa\nyeQfsrZgUDWFdLyuH5lPa7FzVVw6brF9D3ilIE8rypMnBh9jYFkS0J7RnhuupYV3\ncLVw7/DouRhi04bEov5M+Xjo0Hd9CllZV01XmBGLcijKn1uyqdMf1Yp98heaIjtE\nSUz+vN+L907DWzEC0/WxWLSJCwKBgQD4l57+wukVOSTlE2ZXDhMctfDkcyhdwaOJ\nTGOh5m8zuqJP4zgQZ4DT79jGY59dNboUfEk4AuYSlqQNl++yXGvvi4f3UWP2NtSG\n4nTz7h0RAxGBLuIWGWckMTwQpXGiabnMj3NeRXKZZfekX3+/PYroU6E2kn7/3+vV\npMPU7zEDZwKBgQDTVqzmXPP8fiGhV/WtkSMa9DN2zSuZfcgvc8ih2CecYeC2FEoF\nX8p7sT1TKV68SFoqrJBdrpowJvWbdz7EZQ2/90R9OD1OOscpOb5X0kcXwSlB9kZk\n5BGCL1Hg/JNli7KQ1V3DB6Q2yey74QNAbjh7zJC5nvdXL7UHVsq4yZGxtwKBgQCq\nCTOkuHcroCGfWsymgScLfVtfN3GF57xPXmPLys2HSYJaOGYRumpBDQ5ubJgF7ojw\nGC8Q09LBJi7iaWl3y4W8nOkMfqxsLgbimCU88EMLbtjbTtEwIoINHGwkSrXWTJDc\n3cYg1knTqQ5hbTz490R7MzDTHhMmO+iZApE8pbsVwwKBgA/KGg1o2S1WrOKaPQmA\nXL9nmmCa0CoLo2e0vFFjaVZjjyI/VWkuW2CuLn2525rRKB/5SLLulVQeEEq3atmU\nwoiu+LGeOpuDKVLfLgRUrB4KCmLBPxifBnA+eP1HP3WYhftoOgdqi7Xid1H8uy07\noau0VLwcH/uYx9TqnXw9onQE\n-----END PRIVATE KEY-----\n',
+  client_email: 'newtranspoze@transpozeapp.iam.gserviceaccount.com',
+  private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCqjDa67qISQD97\n3Kct59nW99ljuGrYuHNTLktE4o2cYbBBJCP+V9XJfbIEiFdYHwlo30phNphdXdmr\n1OYibw4ZW9+d8SwZBdV/z0qxbU+IJH+mfCTalcXSSRtbSm/IpSXazUMGaIeF4ziz\n/VpUyzUc4W8cDDw6M5i6iMN5H4n6TWnL7xE9k46hdD5Fx7Xi/LlWBn/miSKe0VXi\nVKK8JenZOwEX+qcKORdqUS6gpBGa8yr46ntmnS5jbJJ/MxSwk8cFYpizQFQBviad\ngyTkg6fQagcaH6XYA3N+GOeSK6MPhFimu9QOzd5h2SCv94FoR6PMMjF7AoTExPhu\nPMbliwFtAgMBAAECgf8VFIjT22IIccP5VIOeqPd69iex0FCJL/o1zd5/3BM3Ltv1\nw5QdEuLZ8p0gqSdHPSEjeePJ+7608EAuWH3QeqB6XWDGgGROalfnGO8QSGBVYVIc\nwfJegAAqfd7RfCsL2MueLZxSHCvIvDrqlsGl3gp7vj0P3wWSvmA0rkUx6lijqboq\ndBXPmeqNlD8vHs9iQiWzb89zGazQ6/vfknldY6oy7mSts4MYzu4TOJWlnlphH98o\nbyNn2wrLMG6MzCoNL/4F3fgmNttL+3KYxjqksO72p2rM6OGHi5Af445K1ZET/Bvu\nn4QxmEIizgesKYYG30LK85FrHu40TWv7/k43jpcCgYEA3em1ph7TnME/IPIpX/4L\n4rXQJ3LM3n84+zp1xXndxZmZpcBDW8asURnZ65Y3nvTOVZEGHedsOrCO+dZN3cdz\n2bJH4OghQbICcWX2s4ODH2N2otJ8E66vU9DHjEJhB0a52VBEAT1GMSBFlDKFBRJP\npIVpjAH9Ludsfr5KyLJAZ7MCgYEAxL6q9o+pTaqAs8Hpgcd+Kr9Q1jFsqoGg6Cjc\noatnr2GGmy1YIrZEUoa4bSNc2F8/Hj6zKQzSBiNp7fv86GKF23Ei3vT6CiGmqQU2\nA6udrCihuHDpwp4UYxJCBzWFP3SU+V1B62pYrbN8PzznXVWoO8aCsYFRGpopOYjB\n/s9GYl8CgYEA3c0aok9tcuA0GNnyQN/LQW43/zXfTwQaEAD+dcK4xygfSmxA5xpM\nYUNVbQNX1KkbEqtBUeJdasvOHCj26xTP1mc7MLDTjLY/ethPHF32UQk5KsT2/zU6\nSKwEx0wRbxRh7bMsRZDY94EqClX0Xn1O3UH7nNTgGmF1L7lDRhXkCcECgYBMOxhg\n+l7+Ec9WVw8T0ukmxQQcSgAxvJJNAfAi0BgXkzEllRcuM/MbCsoQt3/08kqxfFfM\n0wPZjwUvSdC/ddUpppd9TexH2qwJl1RLbcZk+0VWAqIAX2HE1UEyK+GaKaDDUggF\noCoF+6JrmjyHJHZP2uWuw01aglrwyPVptoQt/wKBgQCP6mueErnG7XnRuVzOTrM0\nyGADtiu5LivSa5MFDNOzBUBP8vZqbrnXKRzgv8IyPeL7YFY3HaCyA5zQM/1T8hmF\nj+khQn8VoAndISAFVouubo3ESslJ+352/o3qNxbwRDZEA6SlLA/5LLXbIccKJO54\njV7QI99oKeirdZqns4yyuw==\n-----END PRIVATE KEY-----\n',
   scopes: ['https://www.googleapis.com/auth/drive']
 };
 
@@ -505,7 +505,7 @@ app.post('/api/files/:fileId/share', async (req, res) => {
       fileId: fileId,
       requestBody: permission,
       fields: 'id',
-      sendNotificationEmail: true
+      sendNotificationEmail: false
     });
     
     return res.json({
@@ -701,7 +701,7 @@ app.post('/api/folders/shareWithPersonal', async (req, res) => {
           fileId: folder.id,
           requestBody: permission,
           fields: 'id',
-          sendNotificationEmail: true
+          sendNotificationEmail: false
         });
         
         shareResults.push({
