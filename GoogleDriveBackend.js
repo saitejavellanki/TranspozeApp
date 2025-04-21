@@ -360,33 +360,25 @@ app.post('/api/recordings/save', upload.single('file'), async (req, res) => {
       });
     }
 
-    const originalFilePath = req.file.path;
-    const convertedFilePath = `${originalFilePath}_converted.wav`;
-    
-    // Convert the audio file to PCM format
-    await convertAudioToPCM(originalFilePath, convertedFilePath);
-
-    // Create the folder hierarchy in Google Drive
+    // Create the folder hierarchy in Google Drive using our helper function
     const folders = await createFolderHierarchy(schoolName, classLevel, subject);
 
-    // Upload the converted file to Google Drive
+    // Upload the file to Google Drive using our helper function
     const uploadResult = await uploadFile(
-      convertedFilePath,
+      req.file.path,
       fileName,
       'audio/wav',
       folders.subjectId
     );
 
-    // Remove the temporary uploaded files
-    fs.unlinkSync(originalFilePath);
-    fs.unlinkSync(convertedFilePath);
+    // Remove the temporary uploaded file
+    fs.unlinkSync(req.file.path);
 
     // Respond with success and file info
     return res.json({
       success: true,
       fileId: uploadResult.id,
-      path: `${schoolName}/${classLevel}/${subject}/${fileName}`,
-      format: 'PCM 16-bit, 16kHz, mono'
+      path: `${schoolName}/${classLevel}/${subject}/${fileName}`
     });
 
   } catch (error) {
@@ -394,6 +386,7 @@ app.post('/api/recordings/save', upload.single('file'), async (req, res) => {
     res.status(500).json({ error: `Failed to save recording: ${error.message}` });
   }
 });
+
 
 // Route to list contents of a folder (folders and files)
 app.get('/api/folders/:folderId/contents', async (req, res) => {
