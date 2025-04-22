@@ -12,19 +12,21 @@ const axios = require('axios');
 const { exec } = require('child_process'); // For FFmpeg execution
 const util = require('util'); // For promisifying exec
 const execPromise = util.promisify(exec); // Promisify exec
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const port = process.env.PORT || 5514;
 const upload = multer({ dest: 'uploads/' });
 
+app.set('trust proxy', 1);
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
 // Service account credentials
 const CREDENTIALS = {
-  client_email: 'vedya-736@transpozenew.iam.gserviceaccount.com',
-  private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDKiHbyBxiEPbi6\niofE9XqYe/aqVl0rSPWpffLB0PT7TUTCHQuozpoH1q/aHGl8YHnYypqDv+MmZGCh\nhcLoLbe+5rxRLOVuPI0IkzxddkvK01ZmRZNrhyPMt3O2eiSN2n+F3PRCODWQ6tSl\nG9xtju42DipO/wDa482xELpeg0rm09/HEgli+iS+10q2W+3ab575KS/aQFAHN3XI\nvJCFl94be6PLqBIUZooBdn44dCN8oBlYguiqIV0EttMzKetF5UbwOSltKwi0vAPF\n+jpdVUnUKfpugLXe51/N5I3CqbWvGQiL8kxdDIVo1yu+O8ddVfELbWH45hHWOY4B\nSi/2TTDbAgMBAAECggEAOG9FIZSrlrGyJzyRr2atlg64wWcWSAjo9yUSv0Hv+ZRi\ny+oXBR8omXWPg6m2FQO3ABsYagzOiTSgHnHsyRBwKmAV6lKlzY1OySxpvitH3Ej+\nQroxZV1/MryNoDOxuts+/HiAkXEjL/HXdfho+BhDNUnGLUPuI5AlkSi1nb9c4Ct7\nwhHj+eFgf4qtO8DvlPGPPp6JQ8kyxUrolrqUvZrM6R5FRJFbsHXNvcQE7inDFQE4\nEpxvRS79xDi8Km4P6rFECaDSpGd4tCcc6t9N78ql2uIjVdX2W4zR01LLqiWBm2xp\nolw2QPcENWVAu4KCctr5VLwSv7gNK5QnKepNTfhSLQKBgQDkBPMpngH/5uMV+XUV\nNCY7iQIToV4XHpYSOvT5W+V22bYFk951yh0IgzqTiNYfIF01xhZSmPXa5jbOVuvP\nt8SJKccx3yq6t0T2zCRCxjSkSCwNFYjgwCMYGHKhAZu/k49bBBLUw2XZkxiR8135\nBk/akuzALjm0AmmueQKXBk7oZwKBgQDjYuIm7IDz6bS7rK/YxTlB5zcrjdKa1eRg\n1RGUtP+v/k4Y7LdjyK24wqQXy5FMe28xi6yTWlJ5PELvRsQ353c0X6uHy6c6q7fm\nSroQ3U2jHwaUng3uGBWageWl8nl+hCTgZnnRJfdRTeXvX0GswqcC4kRRPnLLOCxi\nogvY4ue7bQKBgHDnrowF7FGNPxaLbhkwuFm0bq3PsmpaP88JGHI8ubOO+91pKbdD\ne/rSF/gjwnqpKN5OlpERonNgmPS0/5DcGtocMMEWEu9ffiuCS9YwlLJf9kgISL2Z\nBgeRW3kz9a333/0eWEC3/D+u4XSrf/Wl1XaSV96VRQdIRpIY41pqyjmzAoGADRc7\nR9xjzCcPRaK6ePNZyYaDMZm3nzxjKoP5wCLveXVdj6fJIxCBl9p00f3hPpL4otSU\nueMAToR+ogHj+Af2X+iGGopJ9WG/c52nuqLS/moh2dqDmMqAK+YAj543CmaXLOgZ\naUYTR/YBH9fPEyAdt1fJcRf0SejQ/Viw7+qYRr0CgYBcux8wMr9A6e5KpuAqZW89\nYuurZ52dH4S1S4u5gKaJ1R6UsdjBV8GA6y0iAOvll4lfa5lo5OjNJNK/76jOOVcC\neu6oTApICSDPJ2ILuqiWKLFqUDLlEV5Dp1RggRGTKv0odejGiQQMx1d6QN+xPfif\nO3yrcnpNhlZE3FeZhVf+rw==\n-----END PRIVATE KEY-----\n',
+  client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  private_key: process.env.GOOGLE_PRIVATE_KEY,
   scopes: ['https://www.googleapis.com/auth/drive']
 };
 
@@ -40,24 +42,43 @@ const initDriveClient = () => {
   return google.drive({ version: 'v3', auth });
 };
 
+// Configure rate limiters
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+// More strict limiter for write operations
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // limit each IP to 30 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many write operations from this IP, please try again after 15 minutes'
+});
+
+// Even more strict limiter for delete operations
+const deleteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // limit each IP to 10 delete operations per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many delete operations from this IP, please try again after 1 hour'
+});
+
+// Apply general rate limiter to all requests
+app.use(generalLimiter);
+
 // Helper function to convert audio file to PCM format
-async function convertAudioToPCM(inputFile, outputFile) {
-  try {
-    // Convert to PCM 16-bit, 16kHz, mono
-    const command = `ffmpeg -i ${inputFile} -acodec pcm_s16le -ac 1 -ar 16000 ${outputFile}`;
-    await execPromise(command);
-    console.log(`Successfully converted audio to PCM: ${outputFile}`);
-    return true;
-  } catch (error) {
-    console.error('Audio conversion failed:', error);
-    throw new Error(`Audio conversion failed: ${error.message}`);
-  }
-}
+
 // Cache for folder IDs
 const folderCache = {};
 
 // Routes for folder operations
-app.post('/api/folders/find', async (req, res) => {
+app.post('/api/folders/find',writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     
@@ -94,7 +115,7 @@ app.post('/api/folders/find', async (req, res) => {
   }
 });
 
-app.post('/api/folders/create', async (req, res) => {
+app.post('/api/folders/create',writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     
@@ -295,7 +316,7 @@ async function uploadFile(filePath, fileName, mimeType, folderId) {
   }
 }
 
-app.post('/api/folders/ensure', async (req, res) => {
+app.post('/api/folders/ensure',writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     const result = await ensureFolder(folderName, parentId);
@@ -306,8 +327,27 @@ app.post('/api/folders/ensure', async (req, res) => {
   }
 });
 
+// Route to list shared drives
+app.get('/api/drives', async (req, res) => {
+  try {
+    const drive = initDriveClient();
+    
+    const response = await drive.drives.list({
+      pageSize: 100
+    });
+    
+    return res.json({
+      drives: response.data.drives,
+      total: response.data.drives.length
+    });
+  } catch (error) {
+    console.error('Failed to list shared drives:', error);
+    res.status(500).json({ error: `Failed to list shared drives: ${error.message}` });
+  }
+});
+
 // Route for file upload
-app.post('/api/files/upload', upload.single('file'), async (req, res) => {
+app.post('/api/files/upload',writeLimiter, upload.single('file'), async (req, res) => {
   try {
     const { fileName, mimeType, folderId } = req.body;
     
@@ -335,7 +375,7 @@ app.post('/api/files/upload', upload.single('file'), async (req, res) => {
 });
 
 // Route for folder hierarchy setup
-app.post('/api/folders/hierarchy', async (req, res) => {
+app.post('/api/folders/hierarchy',writeLimiter, async (req, res) => {
   try {
     const { schoolName, classLevel, subject } = req.body;
     const result = await createFolderHierarchy(schoolName, classLevel, subject);
@@ -348,7 +388,7 @@ app.post('/api/folders/hierarchy', async (req, res) => {
 
 // Route to save a recording directly
 // Route to save a recording with conversion to PCM
-app.post('/api/recordings/save', upload.single('file'), async (req, res) => {
+app.post('/api/recordings/save',writeLimiter, upload.single('file'), async (req, res) => {
   try {
     const { schoolName, classLevel, subject, fileName } = req.body;
 
@@ -467,7 +507,7 @@ app.get('/api/files/:fileId', async (req, res) => {
 });
 
 // Route to share a file with a specific user
-app.post('/api/files/:fileId/share', async (req, res) => {
+app.post('/api/files/:fileId/share', writeLimiter, async (req, res) => {
   try {
     const { fileId } = req.params;
     const { email, role = 'reader' } = req.body;
@@ -660,7 +700,7 @@ app.post('/api/files/:fileId/copy', async (req, res) => {
 });
 
 // Route to share service account folders with personal account
-app.post('/api/folders/shareWithPersonal', async (req, res) => {
+app.post('/api/folders/shareWithPersonal',writeLimiter, async (req, res) => {
   try {
     const { email, role = 'reader' } = req.body;
     
@@ -726,7 +766,7 @@ app.post('/api/folders/shareWithPersonal', async (req, res) => {
 // Add this route to your existing server.js file
 
 // Route to delete all folders and clear the space
-app.delete('/api/folders/deleteAll', async (req, res) => {
+app.delete('/api/folders/deleteAll',deleteLimiter, async (req, res) => {
   try {
     const { confirm } = req.body;
     
@@ -788,7 +828,7 @@ app.delete('/api/folders/deleteAll', async (req, res) => {
 });
 
 // Route to delete a specific folder and all its contents
-app.delete('/api/folders/:folderId', async (req, res) => {
+app.delete('/api/folders/:folderId',deleteLimiter, async (req, res) => {
   try {
     const { folderId } = req.params;
     
