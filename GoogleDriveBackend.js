@@ -212,7 +212,7 @@ async function findFolder(folderName, parentId) {
   
   const drive = initDriveClient();
   
-  // Build the query
+  // Build the query - make it more exact
   let query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`;
   if (parentId) {
     query += ` and '${parentId}' in parents`;
@@ -278,10 +278,12 @@ async function ensureFolder(folderName, parentId) {
   let findResult = await findFolder(folderName, parentId);
   
   if (findResult.id) {
+    console.log(`Folder '${folderName}' already exists with ID: ${findResult.id}`);
     return { id: findResult.id };
   }
   
   // If not found, create it
+  console.log(`Creating new folder '${folderName}'`);
   let createResult = await createFolder(folderName, parentId);
   return { id: createResult.id };
 }
