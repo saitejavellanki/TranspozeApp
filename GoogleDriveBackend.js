@@ -18,6 +18,9 @@ const app = express();
 const port = process.env.PORT || 5514;
 const upload = multer({ dest: 'uploads/' });
 
+// Shared Drive ID - configure this in your environment variables
+const SHARED_DRIVE_ID = process.env.SHARED_DRIVE_ID;
+
 app.set('trust proxy', 1);
 // Middleware
 app.use(cors());
@@ -60,25 +63,14 @@ const writeLimiter = rateLimit({
   message: 'Too many write operations from this IP, please try again after 15 minutes'
 });
 
-// Even more strict limiter for delete operations
-const deleteLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // limit each IP to 10 delete operations per hour
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many delete operations from this IP, please try again after 1 hour'
-});
-
 // Apply general rate limiter to all requests
 app.use(generalLimiter);
-
-// Helper function to convert audio file to PCM format
 
 // Cache for folder IDs
 const folderCache = {};
 
 // Routes for folder operations
-app.post('/api/folders/find',writeLimiter, async (req, res) => {
+app.post('/api/folders/find', writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     
@@ -96,10 +88,15 @@ app.post('/api/folders/find',writeLimiter, async (req, res) => {
       query += ` and '${parentId}' in parents`;
     }
 
+    // Add driveId parameter to search within the shared drive
     const response = await drive.files.list({
       q: query,
       fields: 'files(id, name)',
-      spaces: 'drive'
+      spaces: 'drive',
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: 'drive'
     });
 
     if (response.data.files && response.data.files.length > 0) {
@@ -115,7 +112,7 @@ app.post('/api/folders/find',writeLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/folders/create',writeLimiter, async (req, res) => {
+app.post('/api/folders/create', writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     
@@ -124,12 +121,13 @@ app.post('/api/folders/create',writeLimiter, async (req, res) => {
     const fileMetadata = {
       name: folderName,
       mimeType: 'application/vnd.google-apps.folder',
-      parents: parentId ? [parentId] : undefined
+      parents: parentId ? [parentId] : [SHARED_DRIVE_ID]
     };
 
     const response = await drive.files.create({
       requestBody: fileMetadata,
-      fields: 'id'
+      fields: 'id',
+      supportsAllDrives: true
     });
 
     if (response.data.id) {
@@ -164,11 +162,16 @@ app.get('/api/health', async (req, res) => {
       // Simple API test - list a single file to validate credentials
       const apiResponse = await drive.files.list({
         pageSize: 1,
-        fields: 'files(id)'
+        fields: 'files(id)',
+        driveId: SHARED_DRIVE_ID,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+        corpora: 'drive'
       });
       
       health.googleDriveConnection = 'connected';
       health.googleDriveApiStatus = 'ok';
+      health.sharedDriveId = SHARED_DRIVE_ID;
     } catch (driveError) {
       console.error('Google Drive connection check failed:', driveError);
       health.googleDriveConnection = 'disconnected';
@@ -191,7 +194,6 @@ app.get('/api/health', async (req, res) => {
   } catch (error) {
     console.error('Health check failed:', error);
     // Even on error, return 200 with error details to avoid triggering monitoring alerts
-    // Use 500 only if you want monitoring systems to detect a server issue
     return res.status(200).json({
       status: 'error',
       timestamp: new Date().toISOString(),
@@ -219,7 +221,11 @@ async function findFolder(folderName, parentId) {
   const response = await drive.files.list({
     q: query,
     fields: 'files(id, name)',
-    spaces: 'drive'
+    spaces: 'drive',
+    driveId: SHARED_DRIVE_ID,
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    corpora: 'drive'
   });
 
   if (response.data.files && response.data.files.length > 0) {
@@ -237,13 +243,26 @@ async function createFolder(folderName, parentId) {
   const fileMetadata = {
     name: folderName,
     mimeType: 'application/vnd.google-apps.folder',
-    parents: parentId ? [parentId] : undefined
+    parents: parentId ? [parentId] : []
   };
 
-  const response = await drive.files.create({
+  const requestParams = {
     requestBody: fileMetadata,
-    fields: 'id'
-  });
+    fields: 'id',
+    supportsAllDrives: true,
+    // Important for shared drive operations
+    driveId: SHARED_DRIVE_ID,
+    corpora: 'drive',
+    includeItemsFromAllDrives: true
+  };
+
+  // For top-level folders in shared drive
+  if (!parentId) {
+    // Add this specific parent for top-level folders in shared drives
+    fileMetadata.parents = [SHARED_DRIVE_ID];
+  }
+
+  const response = await drive.files.create(requestParams);
 
   if (response.data.id) {
     const cacheKey = parentId ? `${parentId}_${folderName}` : folderName;
@@ -306,7 +325,11 @@ async function uploadFile(filePath, fileName, mimeType, folderId) {
   const response = await drive.files.create({
     requestBody: fileMetadata,
     media: media,
-    fields: 'id'
+    fields: 'id',
+    supportsAllDrives: true,
+    driveId: SHARED_DRIVE_ID,
+    corpora: 'drive',
+    includeItemsFromAllDrives: true
   });
   
   if (response.data.id) {
@@ -316,7 +339,7 @@ async function uploadFile(filePath, fileName, mimeType, folderId) {
   }
 }
 
-app.post('/api/folders/ensure',writeLimiter, async (req, res) => {
+app.post('/api/folders/ensure', writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
     const result = await ensureFolder(folderName, parentId);
@@ -347,7 +370,7 @@ app.get('/api/drives', async (req, res) => {
 });
 
 // Route for file upload
-app.post('/api/files/upload',writeLimiter, upload.single('file'), async (req, res) => {
+app.post('/api/files/upload', writeLimiter, upload.single('file'), async (req, res) => {
   try {
     const { fileName, mimeType, folderId } = req.body;
     
@@ -375,7 +398,7 @@ app.post('/api/files/upload',writeLimiter, upload.single('file'), async (req, re
 });
 
 // Route for folder hierarchy setup
-app.post('/api/folders/hierarchy',writeLimiter, async (req, res) => {
+app.post('/api/folders/hierarchy', writeLimiter, async (req, res) => {
   try {
     const { schoolName, classLevel, subject } = req.body;
     const result = await createFolderHierarchy(schoolName, classLevel, subject);
@@ -386,9 +409,8 @@ app.post('/api/folders/hierarchy',writeLimiter, async (req, res) => {
   }
 });
 
-// Route to save a recording directly
 // Route to save a recording with conversion to PCM
-app.post('/api/recordings/save',writeLimiter, upload.single('file'), async (req, res) => {
+app.post('/api/recordings/save', writeLimiter, upload.single('file'), async (req, res) => {
   try {
     const { schoolName, classLevel, subject, fileName } = req.body;
 
@@ -427,7 +449,6 @@ app.post('/api/recordings/save',writeLimiter, upload.single('file'), async (req,
   }
 });
 
-
 // Route to list contents of a folder (folders and files)
 app.get('/api/folders/:folderId/contents', async (req, res) => {
   try {
@@ -437,7 +458,11 @@ app.get('/api/folders/:folderId/contents', async (req, res) => {
     const response = await drive.files.list({
       q: `'${folderId}' in parents and trashed=false`,
       fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)',
-      spaces: 'drive'
+      spaces: 'drive',
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: 'drive'
     });
     
     const items = response.data.files.map(file => {
@@ -473,9 +498,13 @@ app.get('/api/folders/root', async (req, res) => {
     const drive = initDriveClient();
     
     const response = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false`,
+      q: `mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id, name, modifiedTime)',
-      spaces: 'drive'
+      spaces: 'drive',
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: 'drive'
     });
     
     return res.json({
@@ -488,6 +517,103 @@ app.get('/api/folders/root', async (req, res) => {
   }
 });
 
+// Route to get files from service account's personal storage
+app.get('/api/personal/files', async (req, res) => {
+  try {
+    const drive = initDriveClient();
+    
+    const response = await drive.files.list({
+      q: `'me' in owners and trashed=false`,  // Only include files you own
+      fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)',
+      spaces: 'drive',
+      corpora: 'user',  // Only search in user's My Drive
+      supportsAllDrives: false,  // Don't include shared drives
+    });
+    
+    const items = response.data.files.map(file => {
+      return {
+        id: file.id,
+        name: file.name,
+        type: file.mimeType === 'application/vnd.google-apps.folder' ? 'folder' : 'file',
+        mimeType: file.mimeType,
+        size: file.size,
+        modifiedTime: file.modifiedTime,
+        webViewLink: file.webViewLink
+      };
+    });
+    
+    // Organize by type (folders first, then files)
+    const folders = items.filter(item => item.type === 'folder');
+    const files = items.filter(item => item.type === 'file');
+    
+    return res.json({
+      folders,
+      files,
+      total: items.length
+    });
+  } catch (error) {
+    console.error('Failed to list personal files:', error);
+    res.status(500).json({ error: `Failed to list personal files: ${error.message}` });
+  }
+});
+
+// Get personal drive storage usage
+app.get('/api/storage/personal', async (req, res) => {
+  try {
+    const drive = initDriveClient();
+    
+    const response = await drive.about.get({
+      fields: 'storageQuota'
+    });
+    
+    const storageQuota = response.data.storageQuota;
+    
+    return res.json({
+      usage: storageQuota.usage,  // Current usage in bytes
+      limit: storageQuota.limit,  // Total storage limit in bytes
+      usageInDrive: storageQuota.usageInDrive,  // Usage in Drive (excludes Gmail, Photos)
+      usageInDriveTrash: storageQuota.usageInDriveTrash,  // Usage in Drive trash
+      availableSpace: storageQuota.limit - storageQuota.usage,  // Available space in bytes
+      percentUsed: (storageQuota.usage / storageQuota.limit) * 100  // Percentage used
+    });
+  } catch (error) {
+    console.error('Failed to get personal drive storage info:', error);
+    res.status(500).json({ error: `Failed to get storage info: ${error.message}` });
+  }
+});
+
+// Get shared drive storage usage
+app.get('/api/storage/shared/:driveId', async (req, res) => {
+  try {
+    const drive = initDriveClient();
+    const driveId = req.params.driveId;
+    
+    if (!driveId) {
+      return res.status(400).json({ error: 'Shared drive ID is required' });
+    }
+    
+    // Get the specific shared drive info
+    const driveResponse = await drive.drives.get({
+      driveId: driveId,
+      fields: 'id,name,storageQuota'
+    });
+    
+    const storageQuota = driveResponse.data.storageQuota || {};
+    
+    return res.json({
+      driveId: driveResponse.data.id,
+      driveName: driveResponse.data.name,
+      usageInDrive: storageQuota.usageInDrive,  // Usage in bytes
+      limit: storageQuota.limit,  // Storage limit in bytes (may be null if unlimited)
+      usage: storageQuota.usage,  // Total usage in bytes
+      availableSpace: storageQuota.limit ? storageQuota.limit - storageQuota.usage : null,
+      percentUsed: storageQuota.limit ? (storageQuota.usage / storageQuota.limit) * 100 : null
+    });
+  } catch (error) {
+    console.error('Failed to get shared drive storage info:', error);
+    res.status(500).json({ error: `Failed to get storage info: ${error.message}` });
+  }
+});
 // Route to get file info
 app.get('/api/files/:fileId', async (req, res) => {
   try {
@@ -496,7 +622,8 @@ app.get('/api/files/:fileId', async (req, res) => {
     
     const response = await drive.files.get({
       fileId: fileId,
-      fields: 'id, name, mimeType, size, modifiedTime, webViewLink, webContentLink, parents'
+      fields: 'id, name, mimeType, size, modifiedTime, webViewLink, webContentLink, parents',
+      supportsAllDrives: true
     });
     
     return res.json(response.data);
@@ -538,7 +665,8 @@ app.post('/api/files/:fileId/share', writeLimiter, async (req, res) => {
       fileId: fileId,
       requestBody: permission,
       fields: 'id',
-      sendNotificationEmail: false
+      sendNotificationEmail: false,
+      supportsAllDrives: true
     });
     
     return res.json({
@@ -551,8 +679,6 @@ app.post('/api/files/:fileId/share', writeLimiter, async (req, res) => {
     res.status(500).json({ error: `Failed to share file: ${error.message}` });
   }
 });
-
-
 
 // Route to get publicly accessible links for a file
 app.post('/api/files/:fileId/getLink', async (req, res) => {
@@ -572,13 +698,15 @@ app.post('/api/files/:fileId/getLink', async (req, res) => {
     await drive.permissions.create({
       fileId: fileId,
       requestBody: permission,
-      fields: 'id'
+      fields: 'id',
+      supportsAllDrives: true
     });
     
     // Get the file information with the links
     const file = await drive.files.get({
       fileId: fileId,
-      fields: 'webViewLink, webContentLink'
+      fields: 'webViewLink, webContentLink',
+      supportsAllDrives: true
     });
     
     return res.json({
@@ -617,7 +745,11 @@ app.get('/api/search', async (req, res) => {
     const response = await drive.files.list({
       q: searchQuery,
       fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink, parents)',
-      spaces: 'drive'
+      spaces: 'drive',
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: 'drive'
     });
     
     const items = response.data.files.map(file => {
@@ -643,225 +775,8 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Route to copy a file to user's personal Google Drive
-app.post('/api/files/:fileId/copy', async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    const { targetEmail, newName } = req.body;
-    
-    if (!targetEmail) {
-      return res.status(400).json({ error: 'Target email is required' });
-    }
-    
-    const drive = initDriveClient();
-    
-    // First share the file with the user
-    const permission = {
-      type: 'user',
-      role: 'writer', // Need write access to copy
-      emailAddress: targetEmail
-    };
-    
-    await drive.permissions.create({
-      fileId: fileId,
-      requestBody: permission,
-      fields: 'id'
-    });
-    
-    // Get the file's metadata
-    const fileResponse = await drive.files.get({
-      fileId: fileId,
-      fields: 'name, mimeType'
-    });
-    
-    // Create a copy
-    const copyRequestBody = {
-      name: newName || `Copy of ${fileResponse.data.name}`
-    };
-    
-    const copyResponse = await drive.files.copy({
-      fileId: fileId,
-      requestBody: copyRequestBody,
-      fields: 'id, name, webViewLink'
-    });
-    
-    return res.json({
-      success: true,
-      originalFileId: fileId,
-      copiedFileId: copyResponse.data.id,
-      name: copyResponse.data.name,
-      webViewLink: copyResponse.data.webViewLink,
-      message: `File successfully copied to ${targetEmail}'s Google Drive`
-    });
-  } catch (error) {
-    console.error('Failed to copy file:', error);
-    res.status(500).json({ error: `Failed to copy file: ${error.message}` });
-  }
-});
-
-// Route to share service account folders with personal account
-app.post('/api/folders/shareWithPersonal',writeLimiter, async (req, res) => {
-  try {
-    const { email, role = 'reader' } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ error: 'Email address is required' });
-    }
-    
-    const drive = initDriveClient();
-    
-    // Get all root folders
-    const foldersResponse = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
-    });
-    
-    const folders = foldersResponse.data.files;
-    const shareResults = [];
-    
-    // Share each folder with the user
-    for (const folder of folders) {
-      try {
-        // Create permission
-        const permission = {
-          type: 'user',
-          role: role,
-          emailAddress: email
-        };
-        
-        const response = await drive.permissions.create({
-          fileId: folder.id,
-          requestBody: permission,
-          fields: 'id',
-          sendNotificationEmail: false
-        });
-        
-        shareResults.push({
-          folder: folder.name,
-          success: true,
-          permissionId: response.data.id
-        });
-      } catch (folderError) {
-        console.error(`Failed to share folder ${folder.name}:`, folderError);
-        shareResults.push({
-          folder: folder.name,
-          success: false,
-          error: folderError.message
-        });
-      }
-    }
-    
-    return res.json({
-      success: true,
-      message: `Shared ${shareResults.filter(r => r.success).length} of ${folders.length} folders with ${email}`,
-      results: shareResults
-    });
-  } catch (error) {
-    console.error('Failed to share folders with personal account:', error);
-    res.status(500).json({ error: `Failed to share folders: ${error.message}` });
-  }
-});
-
-// Add this route to your existing server.js file
-
-// Route to delete all folders and clear the space
-app.delete('/api/folders/deleteAll',deleteLimiter, async (req, res) => {
-  try {
-    const { confirm } = req.body;
-    
-    // Require confirmation to prevent accidental deletion
-    if (confirm !== 'DELETE_ALL_FOLDERS') {
-      return res.status(400).json({ 
-        error: 'Confirmation required', 
-        message: 'Please include {"confirm": "DELETE_ALL_FOLDERS"} in the request body to confirm deletion of all folders'
-      });
-    }
-    
-    const drive = initDriveClient();
-    
-    // Get all root folders
-    const response = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
-    });
-    
-    const folders = response.data.files;
-    const deletionResults = [];
-    
-    // Delete each folder
-    for (const folder of folders) {
-      try {
-        await drive.files.delete({
-          fileId: folder.id
-        });
-        
-        deletionResults.push({
-          folder: folder.name,
-          success: true
-        });
-      } catch (folderError) {
-        console.error(`Failed to delete folder ${folder.name}:`, folderError);
-        deletionResults.push({
-          folder: folder.name,
-          success: false,
-          error: folderError.message
-        });
-      }
-    }
-    
-    // Clear the folder cache
-    Object.keys(folderCache).forEach(key => {
-      delete folderCache[key];
-    });
-    
-    return res.json({
-      success: true,
-      message: `Successfully deleted ${deletionResults.filter(r => r.success).length} of ${folders.length} folders`,
-      results: deletionResults
-    });
-  } catch (error) {
-    console.error('Failed to delete all folders:', error);
-    res.status(500).json({ error: `Failed to delete all folders: ${error.message}` });
-  }
-});
-
-// Route to delete a specific folder and all its contents
-app.delete('/api/folders/:folderId',deleteLimiter, async (req, res) => {
-  try {
-    const { folderId } = req.params;
-    
-    // Validate folder ID
-    if (!folderId) {
-      return res.status(400).json({ error: 'Folder ID is required' });
-    }
-    
-    const drive = initDriveClient();
-    
-    // Delete the folder
-    await drive.files.delete({
-      fileId: folderId
-    });
-    
-    // Remove any matching entries from folder cache
-    Object.keys(folderCache).forEach(key => {
-      if (folderCache[key] === folderId) {
-        delete folderCache[key];
-      }
-    });
-    
-    return res.json({
-      success: true,
-      message: `Folder ${folderId} successfully deleted`
-    });
-  } catch (error) {
-    console.error(`Failed to delete folder ${req.params.folderId}:`, error);
-    res.status(500).json({ error: `Failed to delete folder: ${error.message}` });
-  }
-});
-
 // Start the server
 app.listen(port, () => {
   console.log(`Google Drive API server running on port ${port}`);
+  console.log(`Using Shared Drive ID: ${SHARED_DRIVE_ID}`);
 });
