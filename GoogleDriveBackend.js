@@ -204,88 +204,117 @@ app.get('/api/health', async (req, res) => {
 
 // Helper functions to replace internal fetch calls
 async function findFolder(folderName, parentId) {
-  // Check cache
-  const cacheKey = parentId ? `${parentId}_${folderName}` : folderName;
-  if (folderCache[cacheKey]) {
-    return { id: folderCache[cacheKey] };
-  }
-  
-  const drive = initDriveClient();
-  
-  // Build the query - make it more exact
-  let query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`;
-  if (parentId) {
-    query += ` and '${parentId}' in parents`;
-  }
+  try {
+    // Sanitize inputs to prevent injection and query issues
+    const safefolderName = folderName.replace(/'/g, "\\'");
+    
+    // Check cache
+    const cacheKey = parentId ? `${parentId}_${folderName}` : folderName;
+    if (folderCache[cacheKey]) {
+      console.log(`Cache hit for folder: ${folderName} [${folderCache[cacheKey]}]`);
+      return { id: folderCache[cacheKey] };
+    }
+    
+    const drive = initDriveClient();
+    
+    // Build the query - make sure it's exact matching
+    let query = `mimeType='application/vnd.google-apps.folder' and name='${safefolderName}' and trashed=false`;
+    if (parentId) {
+      query += ` and '${parentId}' in parents`;
+    }
 
-  const response = await drive.files.list({
-    q: query,
-    fields: 'files(id, name)',
-    spaces: 'drive',
-    driveId: SHARED_DRIVE_ID,
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    corpora: 'drive'
-  });
+    console.log(`Searching for folder: "${folderName}" with query: ${query}`);
+    
+    const response = await drive.files.list({
+      q: query,
+      fields: 'files(id, name, parents)',
+      spaces: 'drive',
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: 'drive'
+    });
 
-  if (response.data.files && response.data.files.length > 0) {
-    const folderId = response.data.files[0].id;
-    folderCache[cacheKey] = folderId;
-    return { id: folderId };
+    console.log(`Found ${response.data.files.length} matching folders for "${folderName}"`);
+    
+    if (response.data.files && response.data.files.length > 0) {
+      // Log all found folders for debugging
+      response.data.files.forEach((file, idx) => {
+        console.log(`Match ${idx+1}: ID=${file.id}, Name=${file.name}, Parents=${file.parents}`);
+      });
+      
+      // Use the first match
+      const folderId = response.data.files[0].id;
+      folderCache[cacheKey] = folderId;
+      console.log(`Selected folder ID: ${folderId} for "${folderName}"`);
+      return { id: folderId };
+    }
+    
+    console.log(`No folder found with name: "${folderName}" ${parentId ? `under parent ${parentId}` : 'at root level'}`);
+    return { id: null };
+  } catch (error) {
+    console.error(`Error finding folder "${folderName}":`, error);
+    throw error;
   }
-  
-  return { id: null };
 }
 
 async function createFolder(folderName, parentId) {
-  const drive = initDriveClient();
-  
-  const fileMetadata = {
-    name: folderName,
-    mimeType: 'application/vnd.google-apps.folder',
-    parents: parentId ? [parentId] : []
-  };
+  try {
+    // First, double-check if folder exists to avoid race conditions
+    const existingFolder = await findFolder(folderName, parentId);
+    if (existingFolder.id) {
+      console.log(`Folder already exists during create check: "${folderName}" [${existingFolder.id}]`);
+      return existingFolder;
+    }
+    
+    console.log(`Creating new folder "${folderName}" ${parentId ? `under parent ${parentId}` : 'at root level'}`);
+    
+    const drive = initDriveClient();
+    
+    const fileMetadata = {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: parentId ? [parentId] : [SHARED_DRIVE_ID]
+    };
 
-  const requestParams = {
-    requestBody: fileMetadata,
-    fields: 'id',
-    supportsAllDrives: true,
-    // Important for shared drive operations
-    driveId: SHARED_DRIVE_ID,
-    corpora: 'drive',
-    includeItemsFromAllDrives: true
-  };
+    const requestParams = {
+      requestBody: fileMetadata,
+      fields: 'id',
+      supportsAllDrives: true,
+      driveId: SHARED_DRIVE_ID,
+      includeItemsFromAllDrives: true
+    };
 
-  // For top-level folders in shared drive
-  if (!parentId) {
-    // Add this specific parent for top-level folders in shared drives
-    fileMetadata.parents = [SHARED_DRIVE_ID];
-  }
+    const response = await drive.files.create(requestParams);
 
-  const response = await drive.files.create(requestParams);
-
-  if (response.data.id) {
-    const cacheKey = parentId ? `${parentId}_${folderName}` : folderName;
-    folderCache[cacheKey] = response.data.id;
-    return { id: response.data.id };
-  } else {
-    throw new Error('Folder creation failed - no ID returned');
+    if (response.data.id) {
+      const cacheKey = parentId ? `${parentId}_${folderName}` : folderName;
+      folderCache[cacheKey] = response.data.id;
+      console.log(`Created folder: "${folderName}" with ID: ${response.data.id}`);
+      return { id: response.data.id };
+    } else {
+      throw new Error('Folder creation failed - no ID returned');
+    }
+  } catch (error) {
+    console.error(`Error creating folder "${folderName}":`, error);
+    throw error;
   }
 }
 
 async function ensureFolder(folderName, parentId) {
+  console.log(`Ensuring folder exists: "${folderName}" ${parentId ? `under parent ${parentId}` : 'at root level'}`);
+  
   // First try to find the folder
   let findResult = await findFolder(folderName, parentId);
   
   if (findResult.id) {
-    console.log(`Folder '${folderName}' already exists with ID: ${findResult.id}`);
-    return { id: findResult.id };
+    console.log(`Using existing folder: "${folderName}" [${findResult.id}]`);
+    return findResult;
   }
   
   // If not found, create it
-  console.log(`Creating new folder '${folderName}'`);
-  let createResult = await createFolder(folderName, parentId);
-  return { id: createResult.id };
+  console.log(`No folder found, creating: "${folderName}"`);
+  return await createFolder(folderName, parentId);
 }
 
 async function createFolderHierarchy(schoolName, classLevel, subject) {
@@ -344,10 +373,23 @@ async function uploadFile(filePath, fileName, mimeType, folderId) {
 app.post('/api/folders/ensure', writeLimiter, async (req, res) => {
   try {
     const { folderName, parentId } = req.body;
+    
+    if (!folderName) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+    
+    console.log(`API request to ensure folder: "${folderName}" ${parentId ? `under parent ${parentId}` : 'at root level'}`);
+    
     const result = await ensureFolder(folderName, parentId);
-    return res.json(result);
+    
+    return res.json({
+      id: result.id,
+      name: folderName,
+      parentId: parentId || 'root',
+      message: `Folder "${folderName}" is now available with ID: ${result.id}`
+    });
   } catch (error) {
-    console.error('Failed to ensure folder exists:', error);
+    console.error(`API error ensuring folder "${req.body.folderName}":`, error);
     res.status(500).json({ error: `Failed to ensure folder exists: ${error.message}` });
   }
 });
