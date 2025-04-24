@@ -45,7 +45,7 @@ const initDriveClient = () => {
   return google.drive({ version: 'v3', auth });
 };
 
-// Configure rate limiters
+// Configure rate limitersr
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
@@ -456,7 +456,7 @@ app.post('/api/folders/hierarchy', writeLimiter, async (req, res) => {
 // Route to save a recording with conversion to PCM
 app.post('/api/recordings/save', writeLimiter, upload.single('file'), async (req, res) => {
   try {
-    const { schoolName, classLevel, subject, fileName } = req.body;
+    let { schoolName, classLevel, subject, fileName } = req.body;
 
     // Validate required parameters and uploaded file
     if (!schoolName || !classLevel || !subject || !fileName || !req.file) {
@@ -464,6 +464,12 @@ app.post('/api/recordings/save', writeLimiter, upload.single('file'), async (req
         error: 'Missing required parameters',
         received: { schoolName, classLevel, subject, fileName, file: !!req.file }
       });
+    }
+
+    // Ensure the fileName has a .wav extension
+    if (!fileName.toLowerCase().endsWith('.wav')) {
+      fileName = fileName + '.wav';
+      console.log(`Added .wav extension to filename: ${fileName}`);
     }
 
     // Create the folder hierarchy in Google Drive using our helper function
@@ -484,6 +490,7 @@ app.post('/api/recordings/save', writeLimiter, upload.single('file'), async (req
     return res.json({
       success: true,
       fileId: uploadResult.id,
+      fileName: fileName, // Return the actual filename with extension
       path: `${schoolName}/${classLevel}/${subject}/${fileName}`
     });
 
